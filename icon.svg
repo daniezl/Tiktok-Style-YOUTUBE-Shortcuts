@@ -1,0 +1,13 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- 圆角矩形背景（深色模式） -->
+  <rect width="128" height="128" rx="24" ry="24" fill="#202124"/>
+  
+  <!-- 快进图标（浅蓝色） -->
+  <g transform="translate(64, 64)">
+    <!-- 第一个播放三角形（左侧） -->
+    <path d="M -23 -20 L -23 20 L -3 0 Z" fill="#8ab4f8"/>
+    <!-- 第二个播放三角形（右侧，快进） -->
+    <path d="M 3 -20 L 3 20 L 23 0 Z" fill="#8ab4f8"/>
+  </g>
+</svg>
+
