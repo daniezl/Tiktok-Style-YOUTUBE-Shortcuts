@@ -5,11 +5,16 @@ const DEFAULT_SETTINGS = {
     s: 's',
     a: 'a',
     d: 'd',
-    z: 'z'
+    z: 'z',
+    q: 'q',
+    e: 'e',
+    r: 'r',
+    f: 'f'
   },
   scrollSpeed: 20,
   arrowKeysAsWASD: true,
-  arrowKeysScroll: true
+  arrowKeysScroll: true,
+  autoRefreshOnVideoLoad: true
 };
 
 let currentSettings = { ...DEFAULT_SETTINGS };
@@ -92,27 +97,20 @@ function updateRefreshNotice() {
   }
 }
 
-// 刷新当前 YouTube 标签页
+// 刷新当前 YouTube 标签页（只刷新当前活动标签页）
 async function refreshYouTubeTabs() {
   try {
-    const tabs = await chrome.tabs.query({ url: ['*://www.youtube.com/*', '*://youtube.com/*'] });
-    if (tabs.length === 0) {
-      // 如果没有找到 YouTube 标签页，尝试刷新当前活动标签页
-      const currentTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (currentTabs.length > 0) {
-        chrome.tabs.reload(currentTabs[0].id);
-      }
-    } else {
-      for (const tab of tabs) {
-        chrome.tabs.reload(tab.id);
-      }
+    // 只刷新当前活动标签页
+    const currentTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (currentTabs.length > 0) {
+      chrome.tabs.reload(currentTabs[0].id);
     }
     
     // 重置原始设置
     originalSettings = JSON.parse(JSON.stringify(currentSettings));
     updateRefreshNotice();
   } catch (error) {
-    console.error('Error refreshing tabs:', error);
+    console.error('Error refreshing tab:', error);
   }
 }
 
@@ -153,6 +151,11 @@ function updateUI() {
   const arrowKeysScrollToggle = document.getElementById('arrow-keys-scroll-toggle');
   if (arrowKeysScrollToggle) {
     arrowKeysScrollToggle.checked = currentSettings.arrowKeysScroll !== undefined ? currentSettings.arrowKeysScroll : true;
+  }
+  
+  const autoRefreshToggle = document.getElementById('auto-refresh-toggle');
+  if (autoRefreshToggle) {
+    autoRefreshToggle.checked = currentSettings.autoRefreshOnVideoLoad !== undefined ? currentSettings.autoRefreshOnVideoLoad : true;
   }
 }
 
@@ -286,6 +289,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (arrowKeysScrollToggle) {
     arrowKeysScrollToggle.addEventListener('change', (e) => {
       currentSettings.arrowKeysScroll = e.target.checked;
+      saveSettings();
+    });
+  }
+
+  // 自动刷新开关
+  const autoRefreshToggle = document.getElementById('auto-refresh-toggle');
+  if (autoRefreshToggle) {
+    autoRefreshToggle.addEventListener('change', (e) => {
+      currentSettings.autoRefreshOnVideoLoad = e.target.checked;
       saveSettings();
     });
   }

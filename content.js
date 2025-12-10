@@ -8,7 +8,11 @@
       s: 's',
       a: 'a',
       d: 'd',
-      z: 'z'
+      z: 'z',
+      q: 'q',
+      e: 'e',
+      r: 'r',
+      f: 'f'
     },
     scrollSpeed: 20
   };
@@ -18,6 +22,15 @@
   let scrollSpeed = DEFAULT_SETTINGS.scrollSpeed;
   let arrowKeysAsWASD = true; // 默认开启
   let arrowKeysScroll = true; // 默认开启
+  let autoRefreshOnVideoLoad = true; // 默认开启
+
+  // 跟踪鼠标位置
+  let mouseX = 0;
+  let mouseY = 0;
+  document.addEventListener('mousemove', function(e) {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  });
 
   // 键盘映射：A/D -> 方向键
   const keyMap = {
@@ -44,6 +57,7 @@
         scrollSpeed = settings.scrollSpeed !== undefined ? settings.scrollSpeed : DEFAULT_SETTINGS.scrollSpeed;
         arrowKeysAsWASD = settings.arrowKeysAsWASD !== undefined ? settings.arrowKeysAsWASD : true;
         arrowKeysScroll = settings.arrowKeysScroll !== undefined ? settings.arrowKeysScroll : true;
+        autoRefreshOnVideoLoad = settings.autoRefreshOnVideoLoad !== undefined ? settings.autoRefreshOnVideoLoad : true;
       }
     });
   }
@@ -287,7 +301,11 @@
 
   // 处理WASD键按下
   function handleWASDKeyDown(event) {
-    const key = event.key.toLowerCase();
+    // 对于ArrowRight，需要特殊处理key值
+    let key = event.key.toLowerCase();
+    if (event.key === 'ArrowRight') {
+      key = 'arrowright';
+    }
     
     // 获取绑定的键
     const boundW = getBoundKey('w');
@@ -329,23 +347,37 @@
       }, 200); // 200ms后认为是长按
     } else if (arrowKeysAsWASD && (event.key === 'ArrowRight' || key === 'arrowright') && !pressedKeys.has('arrowright')) {
       // 如果启用了箭头键功能，右箭头键和D键一样
-      pressedKeys.add('arrowright');
+      // 确保状态干净：清除之前的定时器（如果有）
+      if (arrowRightTimer) {
+        clearTimeout(arrowRightTimer);
+        arrowRightTimer = null;
+      }
+      // 重置状态
       arrowRightLongPress = false;
+      pressedKeys.add('arrowright');
+      let wasShortPress = true;
       
+      // 延迟执行快进，如果在这期间释放了，就执行快进；如果一直按着，就进入加速模式
       arrowRightTimer = setTimeout(() => {
-        // 200ms后认为是长按，触发空格键并阻止默认行为
-        arrowRightLongPress = true;
-        if (!spaceKeyPressed) {
-          spaceKeyPressed = true;
-          const spaceDownEvent = createKeyboardEvent('keydown', ' ', 'Space', 32);
-          const video = document.querySelector('video');
-          if (video) {
-            video.dispatchEvent(spaceDownEvent);
-          } else {
-            document.dispatchEvent(spaceDownEvent);
+        // 200ms后检查：如果还在按着，进入加速模式
+        // 注意：如果已经释放了，keyup会处理快进，这里不需要处理
+        if (pressedKeys.has('arrowright')) {
+          // 还在按着，进入加速模式
+          wasShortPress = false;
+          arrowRightLongPress = true;
+          if (!spaceKeyPressed) {
+            spaceKeyPressed = true;
+            const spaceDownEvent = createKeyboardEvent('keydown', ' ', 'Space', 32);
+            const video = document.querySelector('video');
+            if (video) {
+              video.dispatchEvent(spaceDownEvent);
+            } else {
+              document.dispatchEvent(spaceDownEvent);
+            }
           }
         }
-      }, 200);
+        // 如果已经释放了，不需要处理，keyup已经处理了
+      }, 200); // 200ms延迟，和D键一致
     } else if (boundA && key === boundA && !pressedKeys.has(key)) {
       // 处理A键（左方向键）
       pressedKeys.add(key);
@@ -370,7 +402,11 @@
 
   // 处理WASD键释放
   function handleWASDKeyUp(event) {
-    const key = event.key.toLowerCase();
+    // 对于ArrowRight，需要特殊处理key值
+    let key = event.key.toLowerCase();
+    if (event.key === 'ArrowRight') {
+      key = 'arrowright';
+    }
     
     // 获取绑定的键
     const boundW = getBoundKey('w');
@@ -417,14 +453,17 @@
       
       // 清除长按定时器
       const wasLongPress = arrowRightLongPress;
+      const hadTimer = arrowRightTimer !== null;
       if (arrowRightTimer) {
         clearTimeout(arrowRightTimer);
         arrowRightTimer = null;
       }
+      
+      // 重置状态
       arrowRightLongPress = false;
       
       // 如果正在模拟空格键，释放它
-      if (spaceKeyPressed) {
+      if (wasLongPress && spaceKeyPressed) {
         spaceKeyPressed = false;
         const spaceUpEvent = createKeyboardEvent('keyup', ' ', 'Space', 32);
         const video = document.querySelector('video');
@@ -433,8 +472,37 @@
         } else {
           document.dispatchEvent(spaceUpEvent);
         }
+      } else if (!wasLongPress && hadTimer) {
+        // 短按：定时器被清除，说明是短按，立即执行快进
+        const arrowRightDownEvent = createKeyboardEvent('keydown', 'ArrowRight', 'ArrowRight', 39);
+        const arrowRightUpEvent = createKeyboardEvent('keyup', 'ArrowRight', 'ArrowRight', 39);
+        const video = document.querySelector('video');
+        
+        // 优先直接调整播放进度，避免合成事件被拦截
+        let handled = false;
+        if (video && !isNaN(video.currentTime)) {
+          video.currentTime = Math.min(
+            video.duration || Number.MAX_SAFE_INTEGER,
+            video.currentTime + 5
+          );
+          handled = true;
+        }
+
+        if (!handled) {
+          // 回退：派发键盘事件，让 YouTube 默认逻辑处理
+          document.dispatchEvent(arrowRightDownEvent);
+          setTimeout(() => {
+            document.dispatchEvent(arrowRightUpEvent);
+          }, 30);
+
+          if (video) {
+            video.dispatchEvent(arrowRightDownEvent);
+            setTimeout(() => {
+              video.dispatchEvent(arrowRightUpEvent);
+            }, 30);
+          }
+        }
       }
-      // 注意：如果是短按右箭头键，不需要额外处理，因为YouTube会正常处理前进
     } else if (boundA && key === boundA && pressedKeys.has(key)) {
       // 处理A键释放（左方向键）
       pressedKeys.delete(key);
@@ -484,6 +552,91 @@
     const boundA = getBoundKey('a');
     const boundD = getBoundKey('d');
     const boundZ = getBoundKey('z');
+    const boundQ = getBoundKey('q');
+    const boundE = getBoundKey('e');
+    const boundR = getBoundKey('r');
+    const boundF = getBoundKey('f');
+    
+    // 处理 R 键：刷新页面
+    if (boundR && key === boundR) {
+      event.preventDefault();
+      event.stopPropagation();
+      window.location.reload();
+      return;
+    }
+    
+    // 处理 F 键：模拟点击鼠标位置下的元素
+    if (boundF && key === boundF) {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      // 获取鼠标位置下的元素
+      const elementAtCursor = document.elementFromPoint(mouseX, mouseY);
+      
+      if (elementAtCursor) {
+        // 尝试找到可点击的父元素（链接、视频缩略图等）
+        let clickableElement = elementAtCursor;
+        let attempts = 0;
+        const maxAttempts = 10;
+        
+        while (clickableElement && attempts < maxAttempts) {
+          // 检查是否是链接
+          if (clickableElement.tagName === 'A' && clickableElement.href) {
+            clickableElement.click();
+            return;
+          }
+          
+          // 检查是否是视频缩略图
+          if (clickableElement.tagName === 'YTD-THUMBNAIL' || 
+              clickableElement.closest('ytd-thumbnail')) {
+            const thumbnail = clickableElement.tagName === 'YTD-THUMBNAIL' 
+              ? clickableElement 
+              : clickableElement.closest('ytd-thumbnail');
+            if (thumbnail) {
+              const link = thumbnail.querySelector('a');
+              if (link) {
+                link.click();
+                return;
+              }
+              thumbnail.click();
+              return;
+            }
+          }
+          
+          // 检查是否有链接父元素
+          const parentLink = clickableElement.closest('a');
+          if (parentLink && parentLink.href) {
+            parentLink.click();
+            return;
+          }
+          
+          clickableElement = clickableElement.parentElement;
+          attempts++;
+        }
+        
+        // 如果没找到特定的可点击元素，直接点击鼠标位置下的元素
+        if (elementAtCursor) {
+          elementAtCursor.click();
+        }
+      }
+      return;
+    }
+    
+    // 处理 Q 键：返回上一页
+    if (boundQ && key === boundQ) {
+      event.preventDefault();
+      event.stopPropagation();
+      window.history.back();
+      return;
+    }
+    
+    // 处理 E 键：返回下一页
+    if (boundE && key === boundE) {
+      event.preventDefault();
+      event.stopPropagation();
+      window.history.forward();
+      return;
+    }
     
     // 处理 Z 键：点赞/取消点赞
     if (boundZ && key === boundZ) {
@@ -504,15 +657,14 @@
       handleWASDKeyDown(event);
     }
     
-    // 如果启用了箭头键功能，只处理长按右箭头键快进
+    // 如果启用了箭头键功能，处理右箭头键
     if (arrowKeysAsWASD && (event.key === 'ArrowRight' || key === 'arrowright')) {
-      // 如果已经进入长按状态，阻止默认行为（避免连续点击快进）
-      if (arrowRightLongPress) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-      // 处理长按逻辑
+      // 立即阻止默认行为，避免先触发快进
+      event.preventDefault();
+      event.stopPropagation();
+      // 处理长按逻辑（不return，让handleWASDKeyDown处理）
       handleWASDKeyDown(event);
+      return; // 处理完后返回，避免重复处理
     }
     
     // 如果启用了箭头键滚动功能，处理上/下箭头键滚动
@@ -555,15 +707,14 @@
       handleWASDKeyUp(event);
     }
     
-    // 如果启用了箭头键功能，只处理长按右箭头键快进
+    // 如果启用了箭头键功能，处理右箭头键释放
     if (arrowKeysAsWASD && (event.key === 'ArrowRight' || key === 'arrowright')) {
-      // 如果正在长按状态，阻止默认行为
-      if (arrowRightLongPress || spaceKeyPressed) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
+      // 立即阻止默认行为
+      event.preventDefault();
+      event.stopPropagation();
       // 处理长按释放逻辑
       handleWASDKeyUp(event);
+      return; // 处理完后返回，避免重复处理
     }
     
     // 如果启用了箭头键滚动功能，处理上/下箭头键释放
@@ -593,5 +744,189 @@
       cancelAnimationFrame(sKeyAnimationFrame);
     }
   });
+
+  // 自动刷新功能：解决 YouTube 倍速 bug
+  // 在视频加载完成后自动刷新一次，确保倍速功能正常工作
+  (function autoRefreshOnVideoLoad() {
+    let lastVideoId = null;
+    let refreshTimeout = null;
+    let urlCheckInterval = null;
+
+    // 从 URL 中提取视频 ID
+    function getVideoId() {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get('v');
+    }
+
+    // 获取基于视频ID的刷新标记key
+    function getRefreshKey(videoId) {
+      return `yt-shortcuts-auto-refreshed-${videoId}`;
+    }
+
+    // 检查并刷新
+    function checkAndRefresh() {
+      // 检查设置是否启用
+      if (!autoRefreshOnVideoLoad) {
+        return;
+      }
+
+      const currentVideoId = getVideoId();
+      
+      // 如果没有视频 ID（不在视频页面），不处理
+      if (!currentVideoId) {
+        return;
+      }
+
+      // 使用基于视频ID的key
+      const refreshKey = getRefreshKey(currentVideoId);
+
+      // 如果视频 ID 变化了，更新 lastVideoId
+      if (currentVideoId !== lastVideoId) {
+        lastVideoId = currentVideoId;
+      }
+
+      // 如果已经刷新过这个视频，不处理
+      if (sessionStorage.getItem(refreshKey)) {
+        return;
+      }
+
+      // 使用多种方法检测视频是否已加载
+      const video = document.querySelector('video');
+      if (video) {
+        // 方法1：检查视频是否已加载元数据
+        if (video.readyState >= 2) { // HAVE_CURRENT_DATA
+          // 再等待一下，确保视频完全初始化
+          if (refreshTimeout) {
+            clearTimeout(refreshTimeout);
+          }
+          refreshTimeout = setTimeout(() => {
+            // 再次检查视频是否还在（防止页面已经变化）
+            const currentVideo = document.querySelector('video');
+            const currentId = getVideoId();
+            if (currentVideo && currentId === currentVideoId) {
+              // 标记已刷新，避免重复刷新
+              sessionStorage.setItem(refreshKey, 'true');
+              window.location.reload();
+            }
+          }, 800); // 增加到800ms，给更多时间初始化
+          return;
+        }
+        
+        // 方法2：监听多个视频事件
+        const onVideoReady = () => {
+          if (refreshTimeout) {
+            clearTimeout(refreshTimeout);
+          }
+          refreshTimeout = setTimeout(() => {
+            const currentVideo = document.querySelector('video');
+            const currentId = getVideoId();
+            if (currentVideo && currentId === currentVideoId) {
+              sessionStorage.setItem(refreshKey, 'true');
+              window.location.reload();
+            }
+          }, 800);
+        };
+        
+        // 监听多个事件以确保捕获
+        video.addEventListener('loadedmetadata', onVideoReady, { once: true });
+        video.addEventListener('loadeddata', onVideoReady, { once: true });
+        video.addEventListener('canplay', onVideoReady, { once: true });
+        
+        // 方法3：如果视频已经有src，也认为已加载
+        if (video.src || video.currentSrc) {
+          setTimeout(() => {
+            if (video.readyState >= 1) { // HAVE_METADATA
+              onVideoReady();
+            }
+          }, 500);
+        }
+      } else {
+        // 如果还没有 video 元素，使用MutationObserver监听DOM变化
+        const observer = new MutationObserver((mutations, obs) => {
+          const video = document.querySelector('video');
+          if (video) {
+            obs.disconnect();
+            setTimeout(checkAndRefresh, 300);
+          }
+        });
+        
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true
+        });
+        
+        // 如果5秒后还没找到视频，停止观察
+        setTimeout(() => {
+          observer.disconnect();
+        }, 5000);
+      }
+    }
+
+    // 初始化检查
+    function initAutoRefresh() {
+      // 重新加载设置
+      chrome.storage.sync.get(['shortcutSettings'], (result) => {
+        if (result.shortcutSettings) {
+          autoRefreshOnVideoLoad = result.shortcutSettings.autoRefreshOnVideoLoad !== undefined 
+            ? result.shortcutSettings.autoRefreshOnVideoLoad 
+            : true;
+        }
+        
+        if (autoRefreshOnVideoLoad) {
+          lastVideoId = getVideoId();
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', checkAndRefresh);
+          } else {
+            setTimeout(checkAndRefresh, 1000);
+          }
+
+          // 监听 URL 变化（YouTube SPA 导航）
+          let lastUrl = window.location.href;
+          if (urlCheckInterval) {
+            clearInterval(urlCheckInterval);
+          }
+          urlCheckInterval = setInterval(() => {
+            const currentUrl = window.location.href;
+            if (currentUrl !== lastUrl) {
+              lastUrl = currentUrl;
+              // URL 变化了，延迟一点再检查（给 YouTube 时间加载新内容）
+              setTimeout(checkAndRefresh, 500);
+            }
+          }, 200);
+
+          // 监听 popstate 事件（浏览器前进/后退）
+          window.addEventListener('popstate', () => {
+            setTimeout(checkAndRefresh, 500);
+          });
+        } else {
+          // 如果禁用了，清理定时器
+          if (urlCheckInterval) {
+            clearInterval(urlCheckInterval);
+            urlCheckInterval = null;
+          }
+        }
+      });
+    }
+
+    // 初始启动
+    initAutoRefresh();
+
+    // 监听设置变化
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      if (request.type === 'settingsUpdated') {
+        initAutoRefresh();
+      }
+    });
+
+    // 清理定时器
+    window.addEventListener('beforeunload', () => {
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout);
+      }
+      if (urlCheckInterval) {
+        clearInterval(urlCheckInterval);
+      }
+    });
+  })();
 })();
 

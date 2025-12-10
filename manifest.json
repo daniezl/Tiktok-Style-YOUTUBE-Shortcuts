@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "YouTube Shortcuts (TikTok Style)",
   "version": "1.0.0",
-  "description": "Bring TikTok-style keyboard shortcuts to YouTube. Navigate, scroll, and control videos with intuitive WASD keys and customizable bindings.",
+  "description": "TikTok-style keyboard shortcuts for YouTube. Navigate, scroll, and control videos with WASD keys.",
   "permissions": ["storage", "tabs"],
   "action": {
     "default_popup": "popup.html",
